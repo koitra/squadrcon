@@ -12,30 +12,46 @@ import (
 	"sync"
 )
 
-type EventSinkFactory = func(context.Context, Hostname) (chan<- []byte, error)
-type Hostname = string
+type (
+	Pool interface {
+		Get(context.Context, string) (*Connection, error)
+		Reconnect(context.Context, string) (*Connection, error)
+		Stop(context.Context, string)
+		Close() error
+	}
 
-type Pool struct {
-	mu            sync.Mutex
-	active        map[string]*Connection
-	makeEventSink EventSinkFactory
-	ctx           context.Context
-}
+	ServerPool struct {
+		mu       sync.Mutex
+		active   map[string]*Connection
+		provider Provider
+		ctx      context.Context
+	}
+
+	Provider interface {
+		Get(context.Context, string) (ServerOpts, error)
+	}
+
+	ServerOpts struct {
+		Passowrd  string
+		EventSink chan<- []byte
+	}
+)
 
 func NewPool(
 	ctx context.Context,
-	makeEventSink EventSinkFactory,
-) *Pool {
-	return &Pool{
-		mu:            sync.Mutex{},
-		active:        map[string]*Connection{},
-		makeEventSink: makeEventSink,
-		ctx:           ctx,
+	provider Provider,
+) *ServerPool {
+	return &ServerPool{
+		mu:       sync.Mutex{},
+		active:   map[string]*Connection{},
+		provider: provider,
+		ctx:      ctx,
 	}
 }
 
-func (p *Pool) Get(
-	_ context.Context, host string, password string,
+func (p *ServerPool) Get(
+	_ context.Context,
+	host string,
 ) (*Connection, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -50,17 +66,18 @@ func (p *Pool) Get(
 		return nil, fmt.Errorf("failed to connect to server: %w", err)
 	}
 
-	events, err := p.makeEventSink(p.ctx, host)
+	opts, err := p.provider.Get(p.ctx, host)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create event sink: %w", err)
+		return nil, fmt.Errorf("failed to get server opts: %w", err)
 	}
 
 	conn, err = NewConnection(
 		p.ctx,
 		tcpCon,
-		password,
-		events,
+		opts.Passowrd,
+		opts.EventSink,
 	)
+
 	if err != nil {
 		return nil, fmt.Errorf("failed to create connection: %w", err)
 	}
@@ -70,14 +87,15 @@ func (p *Pool) Get(
 	return conn, nil
 }
 
-func (p *Pool) Reconnect(
-	ctx context.Context, host string, password string,
+func (p *ServerPool) Reconnect(
+	ctx context.Context,
+	host string,
 ) (*Connection, error) {
 	p.Stop(ctx, host)
-	return p.Get(ctx, host, password)
+	return p.Get(ctx, host)
 }
 
-func (p *Pool) Stop(ctx context.Context, host string) {
+func (p *ServerPool) Stop(ctx context.Context, host string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -88,7 +106,7 @@ func (p *Pool) Stop(ctx context.Context, host string) {
 	}
 }
 
-func (p *Pool) Close() error {
+func (p *ServerPool) Close() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
