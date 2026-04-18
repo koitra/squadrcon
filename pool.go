@@ -22,7 +22,7 @@ type (
 
 	ServerPool struct {
 		mu       sync.Mutex
-		active   map[string]*Connection
+		active   map[string]*handle
 		provider Provider
 		ctx      context.Context
 	}
@@ -34,6 +34,12 @@ type (
 	ServerOpts struct {
 		Passowrd  string
 		EventSink chan<- []byte
+		OnClose   func()
+	}
+
+	handle struct {
+		conn    *Connection
+		onClose func()
 	}
 )
 
@@ -43,7 +49,7 @@ func NewPool(
 ) *ServerPool {
 	return &ServerPool{
 		mu:       sync.Mutex{},
-		active:   map[string]*Connection{},
+		active:   map[string]*handle{},
 		provider: provider,
 		ctx:      ctx,
 	}
@@ -56,10 +62,19 @@ func (p *ServerPool) Get(
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	conn, ok := p.active[host]
+	existing, ok := p.active[host]
+	conn := existing.conn
 	if ok && conn.IsHealthy() {
 		return conn, nil
 	}
+	go existing.onClose()
+	h := new(handle)
+	var err error
+	defer func() {
+		if err != nil {
+			_ = h.Close()
+		}
+	}()
 
 	tcpCon, err := net.Dial("tcp", host)
 	if err != nil {
@@ -69,6 +84,10 @@ func (p *ServerPool) Get(
 	opts, err := p.provider.Get(p.ctx, host)
 	if err != nil {
 		return nil, fmt.Errorf("failed to get server opts: %w", err)
+	}
+	h.onClose = opts.OnClose
+	if h.onClose == nil {
+		h.onClose = func() {}
 	}
 
 	conn, err = NewConnection(
@@ -82,7 +101,8 @@ func (p *ServerPool) Get(
 		return nil, fmt.Errorf("failed to create connection: %w", err)
 	}
 
-	p.active[host] = conn
+	h.conn = conn
+	p.active[host] = h
 
 	return conn, nil
 }
@@ -99,10 +119,11 @@ func (p *ServerPool) Stop(ctx context.Context, host string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	conn, exists := p.active[host]
+	h, exists := p.active[host]
 	if exists {
-		_ = conn.Close()
+		_ = h.conn.Close()
 		delete(p.active, host)
+		go h.onClose()
 	}
 }
 
@@ -111,12 +132,27 @@ func (p *ServerPool) Close() error {
 	defer p.mu.Unlock()
 
 	var closeErr []error
-	for _, conn := range p.active {
-		err := conn.Close()
+	for _, h := range p.active {
+		err := h.Close()
 		if closeErr != nil {
 			closeErr = append(closeErr, err)
 		}
+		go h.onClose()
 	}
 
 	return errors.Join(closeErr...)
+}
+
+func (h *handle) Close() error {
+	var err error
+	if h.conn != nil {
+		err = h.conn.Close()
+		h.conn = nil
+	}
+
+	if h.onClose != nil {
+		go h.onClose()
+	}
+
+	return err
 }
