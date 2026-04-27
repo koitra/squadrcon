@@ -42,6 +42,11 @@ func ParseEvent(b []byte) (Event, error) {
 		return &kickedPlayerEvent, nil
 	}
 
+	var playerWasKickedEvent PlayerWasKicked
+	if err := playerWasKickedEvent.parse(b); err == nil {
+		return &playerWasKickedEvent, nil
+	}
+
 	var createdSquadEvent CreatedSquad
 	if err := createdSquadEvent.parse(b); err == nil {
 		return &createdSquadEvent, nil
