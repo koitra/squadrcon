@@ -6,7 +6,6 @@ package commands
 
 import (
 	"fmt"
-	"iter"
 	"strconv"
 	"strings"
 
@@ -86,59 +85,47 @@ const (
 func parseListPlayers(body string) (ListPlayersResponse, error) {
 	normalized := strings.ReplaceAll(body, "\r\n", "\n")
 	normalized = strings.ReplaceAll(normalized, "\r", "\n")
+	lines := strings.Lines(normalized)
+	type state = int8
+	const (
+		ready state = iota
+		inActive
+		inDisconnected
+	)
 
-	nextLine, stopLinesIter := iter.Pull(strings.Lines(normalized))
-	defer stopLinesIter()
+	s := ready
 
-	next, ok := nextLine()
-	next = strings.TrimSpace(next)
+	var activePlayers []*ActivePlayer
+	var disconnectedPlayers []*DisconnectedPlayer
 
-	if !ok {
-		return ListPlayersResponse{}, NoActiveHeaderError{}
-	}
-
-	if next != activeHeader {
-		return ListPlayersResponse{}, InvalidActivePlayersHeaderError{line: next}
-	}
-
-	activePlayers := []*ActivePlayer{}
-
-	for {
-		next, ok := nextLine()
-		if !ok {
-			return ListPlayersResponse{}, UnexpectedEOFError{}
-		}
-
-		next = strings.TrimSpace(next)
-
-		active, err := activePlayer(next)
-		if err != nil {
-			if next != disconnectedHeader {
-				return ListPlayersResponse{}, NoDisconnectedHeaderError{}
+	for line := range lines {
+		line = strings.TrimSpace(line)
+		switch s {
+		case ready:
+			if line != activeHeader {
+				return ListPlayersResponse{}, NoActiveHeaderError{}
 			}
+			s = inActive
+			continue
 
-			break
+		case inActive:
+			active, err := activePlayer(line)
+			if err != nil {
+				if line == disconnectedHeader {
+					s = inDisconnected
+					continue
+				}
+				return ListPlayersResponse{}, err
+			}
+			activePlayers = append(activePlayers, &active)
+
+		case inDisconnected:
+			disconnected, err := disconnectedPlayer(line)
+			if err != nil {
+				return ListPlayersResponse{}, err
+			}
+			disconnectedPlayers = append(disconnectedPlayers, &disconnected)
 		}
-
-		activePlayers = append(activePlayers, &active)
-	}
-
-	disconnectedPlayers := []*DisconnectedPlayer{}
-
-	for {
-		next, ok := nextLine()
-		if !ok {
-			break
-		}
-
-		next = strings.TrimSpace(next)
-
-		disconnected, err := disconnectedPlayer(next)
-		if err != nil {
-			return ListPlayersResponse{}, InvalidDisconnectedLineError{line: next}
-		}
-
-		disconnectedPlayers = append(disconnectedPlayers, &disconnected)
 	}
 
 	return ListPlayersResponse{

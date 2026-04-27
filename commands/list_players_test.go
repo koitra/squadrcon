@@ -68,6 +68,41 @@ func TestDisconnectedPlayer(t *testing.T) {
 	require.Equal(t, expect, result)
 }
 
+func TestListPlayersWithoutDisconnected(t *testing.T) {
+	body := `----- Active Players -----
+ID: 108 | Online IDs: EOS: 0002a1fc90d241fcbb83baa13c59df84 steam: 00000000000000000 | Name: clan nickame | Team ID: 2 | Squad ID: 8 | Is Leader: True | Role: RGF_SL_01
+ID: 103 | Online IDs: EOS: 0002e129bb484f5894248fbb91f38a26 steam: 00000000000000000 | Name:  克crying克 | Team ID: 2 | Squad ID: N/A | Is Leader: False | Role: RGF_LAT_02`
+
+	expect := ListPlayersResponse{
+		Active: []*ActivePlayer{
+			{
+				ConnectID:   108,
+				EosID:       "0002a1fc90d241fcbb83baa13c59df84",
+				SteamID:     new("00000000000000000"),
+				Name:        "clan nickame",
+				TeamNumber:  new(int32(2)),
+				SquadNumber: new(int32(8)),
+				IsLeader:    true,
+				Role:        "RGF_SL_01",
+			},
+			{
+				ConnectID:   103,
+				EosID:       "0002e129bb484f5894248fbb91f38a26",
+				SteamID:     new("00000000000000000"),
+				Name:        "克crying克",
+				TeamNumber:  new(int32(2)),
+				SquadNumber: nil,
+				IsLeader:    false,
+				Role:        "RGF_LAT_02",
+			},
+		},
+	}
+	result, err := parseListPlayers(body)
+
+	require.NoError(t, err)
+	require.Equal(t, expect, result)
+}
+
 func TestListPlayers(t *testing.T) {
 	body := `----- Active Players -----
 ID: 108 | Online IDs: EOS: 0002a1fc90d241fcbb83baa13c59df84 steam: 00000000000000000 | Name: clan nickame | Team ID: 2 | Squad ID: 8 | Is Leader: True | Role: RGF_SL_01
