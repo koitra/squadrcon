@@ -10,59 +10,31 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"sync/atomic"
-	"unicode/utf8"
-
-	"src.rhoti.com/koitra/squadrcon/commands"
+	"sync"
 )
 
 type (
 	Connection struct {
-		transport io.Closer
-
-		rh readerHandle
-		wh writerHandle
-
+		msgs   <-chan connectionMessage
+		reqs   chan<- request
 		events chan<- []byte
 
+		m                sync.Mutex
+		auth             authState
+		err              error
+		previousPacketID int32
 		inflight         map[int32]*cmdHandle
 		nextID           int32
-		previousPacketID int32
 
-		newCmds chan newCommand
-
-		ctx context.Context
-
-		isDead atomic.Bool
-		error  error
-
-		cancel context.CancelFunc
-	}
-
-	newCommand struct {
-		body string
-		res  chan<- []byte
-		err  chan<- error
+		cancel    context.CancelFunc
+		transport io.Closer
 	}
 
 	cmdHandle struct {
 		body []byte
-		res  chan<- []byte
-		err  chan<- error
+		// Either error or []byte
+		res chan<- any
 	}
-
-	readerHandle struct {
-		packets <-chan packet
-		empty   <-chan struct{}
-		err     <-chan error
-	}
-
-	writerHandle struct {
-		reqs chan<- request
-		err  <-chan error
-	}
-
-	UnknownPacketError struct{ PacketID int32 }
 )
 
 const (
@@ -70,81 +42,147 @@ const (
 	authPacketID int32 = 11
 )
 
-func (c *Connection) run() {
-	// TODO: ping
+func NewConnection(
+	ctx context.Context,
+	transport io.ReadWriteCloser,
+	events chan<- []byte,
+) *Connection {
+	msgs := make(chan connectionMessage, 16)
+	r := reader{
+		src:  bufio.NewReader(transport),
+		msgs: msgs,
+	}
+
+	reqs := make(chan request, 16)
+
+	w := writer{
+		reqs: reqs,
+		dst:  transport,
+		msgs: msgs,
+	}
+
+	ctx, cancel := context.WithCancel(ctx)
+
+	conn := &Connection{
+		msgs:      msgs,
+		reqs:      reqs,
+		events:    events,
+		inflight:  make(map[int32]*cmdHandle, 16),
+		nextID:    minCmdID,
+		cancel:    cancel,
+		transport: transport,
+	}
+
+	go r.nun(ctx)
+	go w.run(ctx)
+	go conn.Run(ctx)
+
+	return conn
+}
+
+type connectionMessage interface {
+	connectionMessage()
+}
+
+type authState int8
+
+const (
+	authStateInitial authState = iota
+	authStateSentPacket
+	authStateRecvResponseValue
+	authStateDone
+)
+
+func (c *Connection) Auth(password string) error {
+	ch, err := c.tryAuth(password)
+	if err != nil {
+		return err
+	}
+
+	res, ok := <-ch
+	if !ok {
+		return errors.New("connection was closed")
+	}
+
+	switch res := res.(type) {
+	case error:
+		return res
+	case []byte:
+		return nil
+	default:
+		panic(fmt.Errorf("unknown auth response type %T", res))
+	}
+}
+
+func (c *Connection) IsHealthy() bool {
+	c.m.Lock()
+	ok := c.err == nil
+	c.m.Unlock()
+	return ok
+}
+
+func (c *Connection) tryAuth(password string) (chan any, error) {
+	c.m.Lock()
+	defer c.m.Unlock()
+	if c.err != nil {
+		return nil, c.err
+	}
+
+	switch c.auth {
+	case authStateInitial:
+		c.auth = authStateSentPacket
+		authReq := newRequest(authPacketID, serverDataAuthTy, []byte(password))
+		ch := make(chan any)
+		c.inflight[authPacketID] = &cmdHandle{
+			body: []byte{},
+			res:  ch,
+		}
+		go func() {
+			c.reqs <- authReq
+		}()
+		return ch, nil
+
+	default:
+		return nil, fmt.Errorf("authentication already started")
+	}
+}
+
+func (c *Connection) Run(ctx context.Context) {
 	for {
 		select {
-		case <-c.ctx.Done():
-			c.degrade(c.ctx.Err())
+		case <-ctx.Done():
 			return
 
-		case err := <-c.rh.err:
-			c.degrade(fmt.Errorf("reader error: %w", err))
-			return
-
-		case packet := <-c.rh.packets:
-			err := c.onPacket(packet)
-			if err != nil {
-				c.degrade(fmt.Errorf("failed to handle packet: %w", err))
+		case msg := <-c.msgs:
+			if c.onMessage(msg) != nil {
 				return
 			}
-
-		case <-c.rh.empty:
-			err := c.onEmpty()
-			if err != nil {
-				c.degrade(fmt.Errorf("failed to handle empty packet: %w", err))
-				return
-			}
-
-		case err := <-c.wh.err:
-			c.degrade(fmt.Errorf("writer error: %w", err))
-			return
-
-		case cmd := <-c.newCmds:
-			c.onNewCommand(cmd)
 		}
 	}
 }
 
-func (c *Connection) onNewCommand(cmd newCommand) {
-	id := c.nextID
-	c.inflight[id] = &cmdHandle{
-		body: []byte{},
-		res:  cmd.res,
-		err:  cmd.err,
+func (c *Connection) onMessage(msg connectionMessage) error {
+	c.m.Lock()
+	defer c.m.Unlock()
+	var err error
+
+	switch msg := msg.(type) {
+	case packet:
+		err = c.onPacket(msg)
+	case emptyPacket:
+		err = c.onEmpty()
+	case readerError:
+		err = msg.Err
+	case writerError:
+		err = msg.Err
+	default:
+		panic(fmt.Errorf("unknown message type %T", msg))
 	}
-
-	// TODO: handle overflow
-	c.nextID += 1
-
-	req := newRequest(id, serverDataExecCommandTy, []byte(cmd.body))
-	req.packets = append(req.packets, packet{
-		id:   id,
-		ty:   serverDataExecCommandTy,
-		body: []byte{},
-	})
-
-	c.wh.reqs <- req
-}
-
-func (c *Connection) onPacket(p packet) error {
-	if p.IsEvent() {
-		c.events <- p.body
+	if err == nil {
 		return nil
 	}
 
-	if p.ty != serverDataResponseValueTy {
-		return UnknownPacketError{PacketID: p.id}
-	}
-
-	h, exists := c.inflight[p.id]
-	if !exists {
-		return UnknownPacketError{PacketID: p.id}
-	}
-
-	c.previousPacketID = p.id
-	h.body = append(h.body, p.body...)
-	return nil
+	return errors.Join(err, c.close(err))
 }
 
 func (c *Connection) onEmpty() error {
@@ -159,225 +197,106 @@ func (c *Connection) onEmpty() error {
 	return nil
 }
 
-func startReader(src io.Reader, ctx context.Context) readerHandle {
-	packets := make(chan packet, 16)
-	empty := make(chan struct{}, 16)
-	error := make(chan error, 1)
-	hdl := readerHandle{
-		packets: packets,
-		empty:   empty,
-		err:     error,
-	}
+func (c *Connection) onPacket(p packet) error {
 
-	buf := bufio.NewReader(src)
-
-	go func() {
-		for ctx.Err() == nil {
-			end, err := readEmptyPacket(buf)
-			if err != nil && !errors.Is(err, notAnEmptyPacketError{}) {
-				error <- fmt.Errorf("failed to read empty packet: %w", err)
-				return
-			}
-			if err == nil {
-				empty <- end
-				continue
-			}
-
-			packet, err := readPacket(buf)
-			if err != nil {
-				error <- fmt.Errorf("failed to read packet: %w", err)
-				return
-			}
-
-			packets <- packet
+	switch c.auth {
+	case authStateInitial:
+		return fmt.Errorf("unexpected packet before auth id: %v\tty: %v", p.id, p.ty)
+	case authStateSentPacket:
+		if p.id == authPacketID && p.ty == serverDataResponseValueTy && len(p.body) == 0 {
+			c.auth = authStateRecvResponseValue
+			return nil
 		}
-	}()
+		return fmt.Errorf("invalid auth SERVERDATA_RESPONSE_VALUE packet")
 
-	return hdl
-}
+	case authStateRecvResponseValue:
+		if p.id == authPacketID && p.ty == serverDataAuthResponseTy && len(p.body) == 0 {
+			c.auth = authStateDone
 
-func startWriter(dst io.Writer, ctx context.Context) writerHandle {
-	requests := make(chan request, 8)
-	error := make(chan error)
-	hdl := writerHandle{
-		reqs: requests,
-		err:  error,
-	}
+			h := c.inflight[authPacketID]
+			delete(c.inflight, authPacketID)
 
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				return
+			h.res <- []byte{}
+			close(h.res)
 
-			case req := <-requests:
-				err := req.write(dst)
-				if err != nil {
-					error <- fmt.Errorf("failed to write request: %w", err)
-					return
-				}
-			}
+			return nil
 		}
-	}()
+		return fmt.Errorf("invalid auth SERVERDATA_AUTH_RESPONSE packet")
 
-	return hdl
-}
-
-func NewConnection(
-	ctx context.Context,
-	transport io.ReadWriteCloser,
-	password string,
-	events chan<- []byte,
-) (*Connection, error) {
-	authReq := newRequest(authPacketID, serverDataAuthTy, []byte(password))
-	err := authReq.write(transport)
-	if err != nil {
-		return nil, fmt.Errorf("failed to write auth packet: %w", err)
-	}
-
-	_, err = readPacket(transport)
-	if err != nil {
-		return nil, fmt.Errorf(
-			"failed to read empty response value packet: %w",
-			err,
-		)
-	}
-
-	_, err = readPacket(transport)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read auth resp packet: %w", err)
-	}
-
-	rh := startReader(transport, ctx)
-	wh := startWriter(transport, ctx)
-
-	ctx, cancel := context.WithCancel(ctx)
-
-	con := Connection{
-		transport:        transport,
-		rh:               rh,
-		wh:               wh,
-		events:           events,
-		inflight:         make(map[int32]*cmdHandle),
-		nextID:           minCmdID,
-		previousPacketID: -1,
-		newCmds:          make(chan newCommand),
-		ctx:              ctx,
-		isDead:           atomic.Bool{},
-		error:            nil,
-		cancel:           cancel,
-	}
-
-	go con.run()
-
-	return &con, nil
-}
-
-func (c *Connection) degrade(err error) {
-	if !c.isDead.CompareAndSwap(false, true) {
-		return
-	}
-
-	c.error = err
-	for _, hdl := range c.inflight {
-		hdl.err <- err
-	}
-
-	_ = c.transport.Close()
-	close(c.events)
-}
-
-func (c *Connection) Command(ctx context.Context, body string) (string, error) {
-	res := make(chan []byte, 1)
-	err := make(chan error, 1)
-
-	c.newCmds <- newCommand{
-		body: body,
-		res:  res,
-		err:  err,
-	}
-
-	select {
-	case <-ctx.Done():
-		return "", ctx.Err()
-
-	case body := <-res:
-		if utf8.Valid(body) {
-			return string(body), nil
+	case authStateDone:
+		if p.IsEvent() {
+			c.events <- p.body
+			return nil
 		}
-		return "", fmt.Errorf("invalid utf8 in response `%v`", body)
 
-	case err := <-err:
-		return "", err
+		if p.ty != serverDataResponseValueTy {
+			return fmt.Errorf("unexpected packet type %v", p.ty)
+		}
+
+		h, exists := c.inflight[p.id]
+		if !exists {
+			return UnknownPacketError{PacketID: p.id}
+		}
+
+		c.previousPacketID = p.id
+		h.body = append(h.body, p.body...)
+		return nil
 	}
-}
-
-func (c *Connection) Close() error {
-	c.cancel()
 
 	return nil
 }
+
+type UnknownPacketError struct{ PacketID int32 }
 
 func (e UnknownPacketError) Error() string {
 	return fmt.Sprintf("unknown packet with id %v", e.PacketID)
 }
 
-func (c *Connection) Status() ConnectionStatus {
-	if c.isDead.Load() {
-		return StatusDegraded
+func (c *Connection) Close() error {
+	c.m.Lock()
+	defer c.m.Unlock()
+
+	return c.close(errors.New("Close() called"))
+}
+
+// Caller is responsible for locking c.m
+func (c *Connection) close(err error) error {
+	if c.err != nil {
+		return nil
 	}
 
-	return StatusHealthy
-}
-
-func (c *Connection) IsHealthy() bool {
-	return c.Status() == StatusHealthy
-}
-
-func (c *Connection) ListPlayers(ctx context.Context) (commands.ListPlayersResponse, error) {
-	return runCmd(ctx, c, commands.ListPlayers{})
-}
-
-func (c *Connection) AdminKick(
-	ctx context.Context,
-	player string,
-	reason string,
-) (commands.AdminKickResponse, error) {
-	return runCmd(ctx, c, commands.AdminKick{
-		Player: player,
-		Reason: reason,
-	})
-}
-
-func (c *Connection) ListSquads(ctx context.Context) (commands.ListSquadsResponse, error) {
-	return runCmd(ctx, c, commands.ListSquads{})
-}
-
-func (c *Connection) AdminWarnByID(
-	ctx context.Context,
-	eosID string,
-	message string,
-) (commands.AdminWarnByIDResponse, error) {
-	return runCmd(ctx, c, commands.AdminWarnByID{
-		EosID:   eosID,
-		Message: message,
-	})
-}
-
-func runCmd[Command commands.RconCommand[Response], Response any](
-	ctx context.Context,
-	conn *Connection,
-	cmd Command,
-) (Response, error) {
-	body, err := conn.Command(ctx, cmd.ToBody())
-	if err != nil {
-		return *new(Response), fmt.Errorf("command error: %w", err)
+	if c.cancel != nil {
+		c.cancel()
+		c.cancel = nil
 	}
 
-	res, err := cmd.ParseBody(body)
-	if err != nil {
-		return *new(Response), err
+	close(c.events)
+	c.err = ConnectionClosedError{Err: err}
+
+	for k, h := range c.inflight {
+		h.res <- c.err
+		close(h.res)
+		delete(c.inflight, k)
 	}
 
-	return res, nil
+	err = c.transport.Close()
+	c.transport = nopCloser{}
+
+	return err
+}
+
+type nopCloser struct{}
+
+func (nopCloser) Close() error { return nil }
+
+type ConnectionClosedError struct {
+	Err error
+}
+
+func (e ConnectionClosedError) Error() string {
+	return fmt.Sprintf("connection closed: %v", e.Err)
+}
+
+func (e ConnectionClosedError) Unwrap() error {
+	return e.Err
 }

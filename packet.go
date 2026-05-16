@@ -132,3 +132,5 @@ func (e errInvalidBodyTerminator) Error() string {
 func (e errInavlidPacketTerminator) Error() string {
 	return fmt.Sprintf("invalid packet terminator: %v", e.Terminator)
 }
+
+func (packet) connectionMessage() {}

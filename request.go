@@ -45,6 +45,10 @@ func (r *request) write(w io.Writer) error {
 	return nil
 }
 
+func (r *request) appendEmpty() {
+	r.packets = append(r.packets, packet{id: r.packets[0].id, ty: serverDataResponseValueTy})
+}
+
 func chunks(data []byte, chunkSize int) iter.Seq[[]byte] {
 	return func(yield func([]byte) bool) {
 		for i := 0; i < len(data); i += chunkSize {

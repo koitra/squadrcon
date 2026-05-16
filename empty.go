@@ -6,6 +6,7 @@ package squadrcon
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 )
 
@@ -20,7 +21,7 @@ func readEmptyPacket(src *bufio.Reader) (emptyPacket, error) {
 	}
 	for idx, byte := range bytes {
 		if byte != ofsPacket[idx] {
-			return emptyPacket{}, notAnEmptyPacketError{}
+			return emptyPacket{}, errNotEmptyPacket
 		}
 	}
 
@@ -32,8 +33,6 @@ func readEmptyPacket(src *bufio.Reader) (emptyPacket, error) {
 	return emptyPacket{}, nil
 }
 
-type notAnEmptyPacketError struct{}
+var errNotEmptyPacket = errors.New("not an empty packet")
 
-func (notAnEmptyPacketError) Error() string {
-	return "not an empty packet"
-}
+func (emptyPacket) connectionMessage() {}

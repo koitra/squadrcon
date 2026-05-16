@@ -71,15 +71,15 @@ func (p *ServerPool) Get(
 		return nil, fmt.Errorf("failed to get server opts: %w", err)
 	}
 
-	conn, err = NewConnection(
+	conn = NewConnection(
 		p.ctx,
 		tcpCon,
-		opts.Passowrd,
 		opts.EventSink,
 	)
 
+	err = conn.Auth(opts.Passowrd)
 	if err != nil {
-		return nil, fmt.Errorf("failed to create connection: %w", err)
+		return nil, fmt.Errorf("failed to setup connection: %w", err)
 	}
 
 	p.active[host] = conn
