@@ -139,7 +139,7 @@ func activePlayer(line string) (ActivePlayer, error) {
 
 	err := activePlayerRe.MatchToTarget(line, &record)
 	if err != nil {
-		return ActivePlayer{}, LineNotMatchedError{}
+		return ActivePlayer{}, LineNotMatchedError{line: line}
 	}
 	return intoActivePlayer(record), nil
 }
