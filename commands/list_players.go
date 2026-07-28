@@ -29,6 +29,7 @@ type (
 		ConnectID   int32
 		EosID       string
 		SteamID     *string
+		EpicID      *string
 		Name        string
 		TeamNumber  *int32
 		SquadNumber *int32
@@ -37,10 +38,8 @@ type (
 	}
 
 	activePlayerRecord struct {
-		ID        int32  `regroup:"connect_id"`
-		EosID     string `regroup:"eos_id"`
-		SteamID   string `regroup:"steam_id"`
-		WithSteam bool   `regroup:"steam_id,exists"`
+		ConnectID int32  `regroup:"connect_id"`
+		IDs       string `regroup:"ids"`
 		Name      string `regroup:"name"`
 		TeamID    string `regroup:"team_id"`
 		SquadID   string `regroup:"squad_id"`
@@ -69,7 +68,7 @@ type (
 
 var (
 	activePlayerRe = regroup.MustCompile(
-		`^ID: (?P<connect_id>\d+) \| Online IDs: EOS: (?P<eos_id>[\da-z]{32})( steam: (?P<steam_id>\d+))? \| Name:\s+(?P<name>.*) \| Team ID: (?P<team_id>(\d)|(N/A)) \| Squad ID: (?P<squad_id>(\d+)|(N/A)) \| Is Leader: (?P<is_leader>(False)|(True)) \| Role: (?P<role>.*)$`,
+		`^ID: (?P<connect_id>\d+) \| Online IDs: (?P<ids>[^|]+) \| Name:\s+(?P<name>.*) \| Team ID: (?P<team_id>(\d)|(N/A)) \| Squad ID: (?P<squad_id>(\d+)|(N/A)) \| Is Leader: (?P<is_leader>(False)|(True)) \| Role: (?P<role>.*)$`,
 	)
 
 	disconnectedPlayerRe = regroup.MustCompile(
@@ -141,10 +140,10 @@ func activePlayer(line string) (ActivePlayer, error) {
 	if err != nil {
 		return ActivePlayer{}, LineNotMatchedError{line: line}
 	}
-	return intoActivePlayer(record), nil
+	return intoActivePlayer(record)
 }
 
-func intoActivePlayer(record activePlayerRecord) ActivePlayer {
+func intoActivePlayer(record activePlayerRecord) (ActivePlayer, error) {
 	var teamID *int32
 	if record.TeamID != "N/A" {
 		parsed, _ := strconv.ParseInt(record.TeamID, 10, 32)
@@ -157,15 +156,40 @@ func intoActivePlayer(record activePlayerRecord) ActivePlayer {
 		squadID = new(int32(parsed))
 	}
 
-	var steamID *string
-	if record.WithSteam {
-		steamID = &record.SteamID
+	ids := make(map[string]string)
+
+	idParts := strings.Split(record.IDs, " ")
+
+	for i := 0; i < len(idParts); i += 2 {
+		platform := strings.TrimSuffix(idParts[i], ":")
+		vid := idParts[i+1]
+		ids[platform] = vid
 	}
 
+	var steamID *string
+	if id, ok := ids["steam"]; ok {
+		steamID = &id
+		delete(ids, "steam")
+	}
+
+	var epicID *string
+	if id, ok := ids["epic"]; ok {
+		epicID = &id
+		delete(ids, "epic")
+	}
+
+	eosID, ok := ids["EOS"]
+	if !ok {
+		return ActivePlayer{}, fmt.Errorf("no EOS ID")
+	}
+	delete(ids, "EOS")
+
+	// TODO: add info about unknown platform ids
 	active := ActivePlayer{
-		ConnectID:   record.ID,
-		EosID:       record.EosID,
+		ConnectID:   record.ConnectID,
+		EosID:       eosID,
 		SteamID:     steamID,
+		EpicID:      epicID,
 		Name:        record.Name,
 		TeamNumber:  teamID,
 		SquadNumber: squadID,
@@ -173,7 +197,7 @@ func intoActivePlayer(record activePlayerRecord) ActivePlayer {
 		Role:        record.Role,
 	}
 
-	return active
+	return active, nil
 }
 
 func disconnectedPlayer(line string) (DisconnectedPlayer, error) {
