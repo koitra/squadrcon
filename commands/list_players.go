@@ -143,6 +143,36 @@ func activePlayer(line string) (ActivePlayer, error) {
 	return intoActivePlayer(record)
 }
 
+func parseOnlineIDs(ids string) (eosID string, steamID *string, epicID *string, err error) {
+	parsed := make(map[string]string)
+
+	idParts := strings.Split(ids, " ")
+
+	for i := 0; i+1 < len(idParts); i += 2 {
+		platform := strings.TrimSuffix(idParts[i], ":")
+		vid := idParts[i+1]
+		parsed[platform] = vid
+	}
+
+	if id, ok := parsed["steam"]; ok {
+		steamID = &id
+		delete(parsed, "steam")
+	}
+
+	if id, ok := parsed["epic"]; ok {
+		epicID = &id
+		delete(parsed, "epic")
+	}
+
+	eosID, ok := parsed["EOS"]
+	if !ok {
+		return "", nil, nil, fmt.Errorf("no EOS ID")
+	}
+	delete(parsed, "EOS")
+
+	return eosID, steamID, epicID, nil
+}
+
 func intoActivePlayer(record activePlayerRecord) (ActivePlayer, error) {
 	var teamID *int32
 	if record.TeamID != "N/A" {
@@ -156,33 +186,10 @@ func intoActivePlayer(record activePlayerRecord) (ActivePlayer, error) {
 		squadID = new(int32(parsed))
 	}
 
-	ids := make(map[string]string)
-
-	idParts := strings.Split(record.IDs, " ")
-
-	for i := 0; i < len(idParts); i += 2 {
-		platform := strings.TrimSuffix(idParts[i], ":")
-		vid := idParts[i+1]
-		ids[platform] = vid
+	eosID, steamID, epicID, err := parseOnlineIDs(record.IDs)
+	if err != nil {
+		return ActivePlayer{}, err
 	}
-
-	var steamID *string
-	if id, ok := ids["steam"]; ok {
-		steamID = &id
-		delete(ids, "steam")
-	}
-
-	var epicID *string
-	if id, ok := ids["epic"]; ok {
-		epicID = &id
-		delete(ids, "epic")
-	}
-
-	eosID, ok := ids["EOS"]
-	if !ok {
-		return ActivePlayer{}, fmt.Errorf("no EOS ID")
-	}
-	delete(ids, "EOS")
 
 	// TODO: add info about unknown platform ids
 	active := ActivePlayer{

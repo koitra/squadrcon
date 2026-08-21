@@ -41,24 +41,23 @@ type (
 		CreatorName    string
 		CreatorEosID   string
 		CreatorSteamID *string
+		CreatorEpicID  *string
 	}
 
 	squadRecord struct {
-		Number         int32  `regroup:"squad_id"`
-		Name           string `regroup:"squad_name"`
-		Size           int32  `regroup:"squad_size"`
-		Locked         bool   `regroup:"locked"`
-		CreatorName    string `regroup:"creator_name"`
-		CreatorEosID   string `regroup:"eos_id"`
-		CreatorSteamID string `regroup:"steam_id"`
-		WithSteam      bool   `regroup:"steam_id,exists"`
+		Number      int32  `regroup:"squad_id"`
+		Name        string `regroup:"squad_name"`
+		Size        int32  `regroup:"squad_size"`
+		Locked      bool   `regroup:"locked"`
+		CreatorName string `regroup:"creator_name"`
+		CreatorIDs  string `regroup:"creator_ids"`
 	}
 )
 
 var (
 	teamRe  = regroup.MustCompile(`Team ID: (?P<team_id>\d+) \((?P<faction_name>.*)\)$`)
 	squadRe = regroup.MustCompile(
-		`ID: (?P<squad_id>\d+) \| Name: (?P<squad_name>.*) \| Size: (?P<squad_size>\d+) \| Locked: (?P<locked>(True)|(False)) \| Creator Name: (?P<creator_name>.*) \| Creator Online IDs: EOS: (?P<eos_id>[\da-z]{32})( steam: (?P<steam_id>\d+))?$`,
+		`ID: (?P<squad_id>\d+) \| Name: (?P<squad_name>.*) \| Size: (?P<squad_size>\d+) \| Locked: (?P<locked>(True)|(False)) \| Creator Name: (?P<creator_name>.*) \| Creator Online IDs: (?P<creator_ids>.*)$`,
 	)
 )
 
@@ -100,9 +99,13 @@ func parseListSquads(body string) (ListSquadsResponse, error) {
 				break
 			}
 
-			var steamId *string
-			if squad.WithSteam {
-				steamId = &squad.CreatorSteamID
+			creatorEosID, creatorSteamID, creatorEpicID, err := parseOnlineIDs(squad.CreatorIDs)
+			if err != nil {
+				return ListSquadsResponse{}, fmt.Errorf(
+					"failed to parse creator online ids in line `%v`: %w",
+					lines[idx],
+					err,
+				)
 			}
 			squads = append(squads, &Squad{
 				Number:         squad.Number,
@@ -110,8 +113,9 @@ func parseListSquads(body string) (ListSquadsResponse, error) {
 				Size:           squad.Size,
 				Locked:         squad.Locked,
 				CreatorName:    squad.CreatorName,
-				CreatorEosID:   squad.CreatorEosID,
-				CreatorSteamID: steamId,
+				CreatorEosID:   creatorEosID,
+				CreatorSteamID: creatorSteamID,
+				CreatorEpicID:  creatorEpicID,
 			})
 
 			idx += 1
