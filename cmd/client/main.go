@@ -8,8 +8,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"net"
 	"os"
 	"strings"
+	"time"
 
 	"src.rhoti.com/koitra/squadrcon/v2"
 )
@@ -22,7 +25,8 @@ func main() {
 }
 
 func run() error {
-	ctx := context.Background()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
 	host := os.Getenv("RCON_HOST")
 	if host == "" {
 		return errors.New("RCON_HOST not set")
@@ -38,48 +42,36 @@ func run() error {
 		return errors.New("no command provided")
 	}
 
-	p := squadrcon.NewPool(ctx, Provider{password: password})
-	defer func() {
-		_ = p.Close()
+	events := make(chan string, 32)
+	go func() {
+		for range events {
+		}
 	}()
-
-	conn, err := p.Get(ctx, host)
-	if err != nil {
-		return fmt.Errorf("failed to get connection: %w", err)
-	}
+	conn := squadrcon.Open(
+		ctx,
+		func(ctx context.Context) (io.ReadWriteCloser, error) {
+			var d net.Dialer
+			ctx, cancel := context.WithDeadline(ctx, time.Now().Add(time.Second*5))
+			defer cancel()
+			conn, err := d.DialContext(ctx, "tcp", host)
+			if err != nil {
+				return nil, fmt.Errorf("connect to host: %w", err)
+			}
+			return conn, nil
+		},
+		password,
+		events,
+	)
 
 	fullCmd := strings.Join(cmd, " ")
 
-	res, err := conn.Command(ctx, fullCmd)
+	cmdCtx, cancel := context.WithDeadline(ctx, time.Now().Add(time.Second*10))
+	defer cancel()
+	res, err := conn.Command(cmdCtx, fullCmd)
 	if err != nil {
 		return fmt.Errorf("failed to execute command: %w", err)
 	}
 	fmt.Println(res)
 
 	return nil
-}
-
-type Provider struct {
-	password string
-}
-
-func (p Provider) Get(ctx context.Context, host string) (squadrcon.ServerOpts, error) {
-	sink := make(chan []byte, 64)
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case _, ok := <-sink:
-				if !ok {
-					return
-				}
-			}
-		}
-	}()
-
-	return squadrcon.ServerOpts{
-		Passowrd:  p.password,
-		EventSink: sink,
-	}, nil
 }
