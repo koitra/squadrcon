@@ -34,5 +34,3 @@ func readEmptyPacket(src *bufio.Reader) (emptyPacket, error) {
 }
 
 var errNotEmptyPacket = errors.New("not an empty packet")
-
-func (emptyPacket) connectionMessage() {}

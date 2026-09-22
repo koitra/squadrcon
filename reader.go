@@ -11,18 +11,18 @@ import (
 )
 
 type reader struct {
-	src  *bufio.Reader
-	msgs chan<- connectionMessage
+	src *bufio.Reader
+	bus chan<- any
 }
 
-func (r *reader) nun(ctx context.Context) {
+func (r *reader) run(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		default:
 			if err := r.read(); err != nil {
-				r.msgs <- readerError{Err: err}
+				r.bus <- readError{err}
 				return
 			}
 		}
@@ -38,7 +38,7 @@ func (r *reader) read() error {
 	}
 
 	if err == nil {
-		r.msgs <- empty
+		r.bus <- empty
 		return nil
 	}
 
@@ -47,17 +47,20 @@ func (r *reader) read() error {
 		return err
 	}
 
-	r.msgs <- packet
+	r.bus <- packet
 
 	return nil
 }
 
-type readerError struct {
+type readError struct {
 	Err error
 }
 
-func (e readerError) Error() string {
-	return fmt.Sprintf("reader error: %v", e.Err)
+func (e readError) Error() string {
+	return fmt.Sprintf("read: %v", e.Err)
+
 }
 
-func (readerError) connectionMessage() {}
+func (e readError) Unwrap() error {
+	return e.Err
+}

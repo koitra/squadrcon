@@ -115,6 +115,16 @@ func (p *packet) IsEvent() bool {
 	return p.id == 0 && p.ty == serverDataEventTy
 }
 
+const authPacketID = 15
+
+func (p *packet) IsAuthResponseValue() bool {
+	return p.id == authPacketID && p.ty == serverDataResponseValueTy
+}
+
+func (p *packet) IsAuthResponse() bool {
+	return p.id == authPacketID && p.ty == serverDataAuthResponseTy
+}
+
 type (
 	errInvalidSize             struct{ Size int32 }
 	errInvalidBodyTerminator   struct{ Terminator byte }
@@ -132,5 +142,3 @@ func (e errInvalidBodyTerminator) Error() string {
 func (e errInavlidPacketTerminator) Error() string {
 	return fmt.Sprintf("invalid packet terminator: %v", e.Terminator)
 }
-
-func (packet) connectionMessage() {}
