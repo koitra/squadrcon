@@ -7,7 +7,7 @@ package squadrcon
 import (
 	"context"
 
-	"src.rhoti.com/koitra/squadrcon/v2/commands"
+	"src.rhoti.com/koitra/squadrcon/v3/commands"
 )
 
 func (c *Connection) ListPlayers(ctx context.Context) (commands.ListPlayersResponse, error) {

@@ -2,9 +2,9 @@
 //
 // SPDX-License-Identifier: SSPL-1.0
 
-module src.rhoti.com/koitra/squadrcon/v2
+module src.rhoti.com/koitra/squadrcon/v3
 
-go 1.26.1
+go 1.27.1
 
 require (
 	github.com/oriser/regroup v0.0.0-20240925165441-f6bb0e08289e
