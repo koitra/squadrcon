@@ -14,7 +14,7 @@ import (
 	"strings"
 	"time"
 
-	"src.rhoti.com/koitra/squadrcon/v3"
+	"rhoti.com/koitra/squadrcon/v3"
 )
 
 func main() {

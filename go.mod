@@ -2,7 +2,7 @@
 //
 // SPDX-License-Identifier: SSPL-1.0
 
-module src.rhoti.com/koitra/squadrcon/v3
+module rhoti.com/koitra/squadrcon/v3
 
 go 1.27.1
 
