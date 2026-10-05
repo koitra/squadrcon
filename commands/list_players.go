@@ -33,8 +33,10 @@ type (
 		Name        string
 		TeamNumber  *int32
 		SquadNumber *int32
+		PartyID     *string
 		IsLeader    bool
 		Role        string
+		Vehicle     *string
 	}
 
 	activePlayerRecord struct {
@@ -43,8 +45,10 @@ type (
 		Name      string `regroup:"name"`
 		TeamID    string `regroup:"team_id"`
 		SquadID   string `regroup:"squad_id"`
+		PartyID   string `regroup:"party_id"`
 		IsLeader  bool   `regroup:"is_leader"`
 		Role      string `regroup:"role"`
+		Vehicle   string `regroup:"vehicle"`
 	}
 
 	DisconnectedPlayer struct {
@@ -68,7 +72,7 @@ type (
 
 var (
 	activePlayerRe = regroup.MustCompile(
-		`^ID: (?P<connect_id>\d+) \| Online IDs: (?P<ids>[^|]+) \| Name:\s+(?P<name>.*) \| Team ID: (?P<team_id>(\d)|(N/A)) \| Squad ID: (?P<squad_id>(\d+)|(N/A)) \| Is Leader: (?P<is_leader>(False)|(True)) \| Role: (?P<role>.*)$`,
+		`^ID: (?P<connect_id>\d+) \| Online IDs: (?P<ids>[^|]+) \| Name:\s+(?P<name>.*) \| Team ID: (?P<team_id>(\d)|(N/A)) \| Party ID: (?P<party_id>.*) \| Squad ID: (?P<squad_id>(\d+)|(N/A)) \| Is Leader: (?P<is_leader>(False)|(True)) \| Role: (?P<role>.*) \| Vehicle: (?P<vehicle>.*)$`,
 	)
 
 	disconnectedPlayerRe = regroup.MustCompile(
@@ -186,6 +190,16 @@ func intoActivePlayer(record activePlayerRecord) (ActivePlayer, error) {
 		squadID = new(int32(parsed))
 	}
 
+	var vehicle *string
+	if record.Vehicle != "N/A" {
+		vehicle = &record.Vehicle
+	}
+
+	var party *string
+	if record.PartyID != "N/A" {
+		party = &record.PartyID
+	}
+
 	eosID, steamID, epicID, err := parseOnlineIDs(record.IDs)
 	if err != nil {
 		return ActivePlayer{}, err
@@ -200,8 +214,10 @@ func intoActivePlayer(record activePlayerRecord) (ActivePlayer, error) {
 		Name:        record.Name,
 		TeamNumber:  teamID,
 		SquadNumber: squadID,
+		PartyID:     party,
 		IsLeader:    record.IsLeader,
 		Role:        record.Role,
+		Vehicle:     vehicle,
 	}
 
 	return active, nil

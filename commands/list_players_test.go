@@ -18,7 +18,7 @@ func TestActivePlayer(t *testing.T) {
 	}{
 		{
 			name: "with squad",
-			line: "ID: 27 | Online IDs: EOS: 02223fa0faf147ac93aa3da72f232b20 steam: 72211442292221100 | Name:  受狂  S1100 | Team ID: 1 | Squad ID: 7 | Is Leader: True | Role: ADF_Medic_02",
+			line: "ID: 27 | Online IDs: EOS: 02223fa0faf147ac93aa3da72f232b20 steam: 72211442292221100 | Name:  受狂  S1100 | Team ID: 1 | Party ID: N/A | Squad ID: 7 | Is Leader: True | Role: ADF_Medic_02 | Vehicle: N/A",
 			expect: ActivePlayer{
 				ConnectID:   27,
 				EosID:       "02223fa0faf147ac93aa3da72f232b20",
@@ -32,7 +32,7 @@ func TestActivePlayer(t *testing.T) {
 		},
 		{
 			name: "without team",
-			line: "ID: 27 | Online IDs: EOS: 02223fa0faf147ac93aa3da72f232b20 steam: 72211442292221100 | Name:  受狂  S1100 | Team ID: 1 | Squad ID: 7 | Is Leader: True | Role: ADF_Medic_02",
+			line: "ID: 27 | Online IDs: EOS: 02223fa0faf147ac93aa3da72f232b20 steam: 72211442292221100 | Name:  受狂  S1100 | Team ID: 1 | Party ID: #1 | Squad ID: 7 | Is Leader: True | Role: ADF_Medic_02 | Vehicle: VDV_BMD-4M (Turret Operator)",
 			expect: ActivePlayer{
 				ConnectID:   27,
 				EosID:       "02223fa0faf147ac93aa3da72f232b20",
@@ -40,8 +40,10 @@ func TestActivePlayer(t *testing.T) {
 				Name:        "受狂  S1100",
 				TeamNumber:  new(int32(1)),
 				SquadNumber: new(int32(7)),
+				PartyID:     new("#1"),
 				IsLeader:    true,
 				Role:        "ADF_Medic_02",
+				Vehicle:     new("VDV_BMD-4M (Turret Operator)"),
 			},
 		},
 	}
@@ -70,8 +72,8 @@ func TestDisconnectedPlayer(t *testing.T) {
 
 func TestListPlayersWithoutDisconnected(t *testing.T) {
 	body := `----- Active Players -----
-ID: 108 | Online IDs: EOS: 0002a1fc90d241fcbb83baa13c59df84 steam: 00000000000000000 | Name: clan nickame | Team ID: 2 | Squad ID: 8 | Is Leader: True | Role: RGF_SL_01
-ID: 103 | Online IDs: EOS: 0002e129bb484f5894248fbb91f38a26 steam: 00000000000000000 | Name:  克crying克 | Team ID: 2 | Squad ID: N/A | Is Leader: False | Role: RGF_LAT_02`
+	ID: 108 | Online IDs: EOS: 0002a1fc90d241fcbb83baa13c59df84 steam: 00000000000000000 | Name: clan nickame | Team ID: 2 | Party ID: N/A | Squad ID: 8 | Is Leader: True | Role: RGF_SL_01 | Vehicle: N/A
+	ID: 103 | Online IDs: EOS: 0002e129bb484f5894248fbb91f38a26 steam: 00000000000000000 | Name:  克crying克 | Team ID: 2 | Party ID: N/A | Squad ID: N/A | Is Leader: False | Role: RGF_LAT_02 | Vehicle: N/A`
 
 	expect := ListPlayersResponse{
 		Active: []*ActivePlayer{
@@ -105,8 +107,8 @@ ID: 103 | Online IDs: EOS: 0002e129bb484f5894248fbb91f38a26 steam: 0000000000000
 
 func TestListPlayers(t *testing.T) {
 	body := `----- Active Players -----
-ID: 108 | Online IDs: EOS: 0002a1fc90d241fcbb83baa13c59df84 steam: 00000000000000000 | Name: clan nickame | Team ID: 2 | Squad ID: 8 | Is Leader: True | Role: RGF_SL_01
-ID: 103 | Online IDs: EOS: 0002e129bb484f5894248fbb91f38a26 steam: 00000000000000000 | Name:  克crying克 | Team ID: 2 | Squad ID: N/A | Is Leader: False | Role: RGF_LAT_02
+	ID: 108 | Online IDs: EOS: 0002a1fc90d241fcbb83baa13c59df84 steam: 00000000000000000 | Name: clan nickame | Team ID: 2 | Party ID: N/A | Squad ID: 8 | Is Leader: True | Role: RGF_SL_01 | Vehicle: test_vehicle
+	ID: 103 | Online IDs: EOS: 0002e129bb484f5894248fbb91f38a26 steam: 00000000000000000 | Name:  克crying克 | Team ID: 2 | Party ID: #2 | Squad ID: N/A | Is Leader: False | Role: RGF_LAT_02 | Vehicle: N/A
 ----- Recently Disconnected Players [Max of 15] -----
 ID: 95 | Online IDs: EOS: 0002321bea6c4dc49ba18c4c5bd0aefd steam: 00000000000000000 | Since Disconnect: 02m.50s | Name:  Trex
 ID: 86 | Online IDs: EOS: 0002222205da2e22ll233333cd4f8e2f | Since Disconnect: 04m.51s | Name:  kfke
@@ -122,6 +124,7 @@ ID: 36 | Online IDs: EOS: 00023695959a49d28315e5300a651bb7 steam: 00000000000000
 				SquadNumber: new(int32(8)),
 				IsLeader:    true,
 				Role:        "RGF_SL_01",
+				Vehicle:     new("test_vehicle"),
 			},
 			{
 				ConnectID:   103,
@@ -130,6 +133,7 @@ ID: 36 | Online IDs: EOS: 00023695959a49d28315e5300a651bb7 steam: 00000000000000
 				Name:        "克crying克",
 				TeamNumber:  new(int32(2)),
 				SquadNumber: nil,
+				PartyID:     new("#2"),
 				IsLeader:    false,
 				Role:        "RGF_LAT_02",
 			},
@@ -164,7 +168,7 @@ ID: 36 | Online IDs: EOS: 00023695959a49d28315e5300a651bb7 steam: 00000000000000
 }
 
 func TestActivePlayerWithoutSteamID(t *testing.T) {
-	line := `ID: 0 | Online IDs: EOS: 0022245a5f394b2e22227e5222222229 | Name:  Nameyrt | Team ID: 1 | Squad ID: 3 | Is Leader: False | Role: WPMC_Rifleman_06`
+	line := `ID: 0 | Online IDs: EOS: 0022245a5f394b2e22227e5222222229 | Name:  Nameyrt | Team ID: 1 | Party ID: N/A | Squad ID: 3 | Is Leader: False | Role: WPMC_Rifleman_06 | Vehicle: N/A`
 	player, err := activePlayer(line)
 	require.NoError(t, err)
 	expect := ActivePlayer{
