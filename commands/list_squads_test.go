@@ -13,8 +13,8 @@ import (
 
 func TestListSquads(t *testing.T) {
 	body := `----- Active Squads -----
-Team ID: 1 (Lord Strathcona's Horse Regiment)
-Team ID: 2 (118th Combined Arms Brigade)
+Team ID: 1 (Lord Strathcona's Horse Regiment) - Tickets: 0
+Team ID: 2 (118th Combined Arms Brigade) - Tickets: 20
 ID: 5 | Name: Squad 5 | Size: 1 | Locked: True | Creator Name: Name3 | Creator Online IDs: EOS: 33333333333333333333333333333333 steam: 333333333333
 ID: 2 | Name: Squad 2 | Size: 1 | Locked: True | Creator Name: Name3 | Creator Online IDs: EOS: 33333333333333333333333333333333 steam: 333333333333`
 	steamID := "333333333333"
@@ -23,11 +23,13 @@ ID: 2 | Name: Squad 2 | Size: 1 | Locked: True | Creator Name: Name3 | Creator O
 			{
 				TeamID:      1,
 				FactionName: "Lord Strathcona's Horse Regiment",
+				Tickets:     0,
 				Squads:      []*Squad{},
 			},
 			{
 				TeamID:      2,
 				FactionName: "118th Combined Arms Brigade",
+				Tickets:     20,
 				Squads: []*Squad{
 					{
 						Number:         5,
@@ -128,7 +130,7 @@ func TestListSquadsCreatorIDs(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			body := fmt.Sprintf(`----- Active Squads -----
-Team ID: 1 (Lord Strathcona's Horse Regiment)
+Team ID: 1 (Lord Strathcona's Horse Regiment) - Tickets: 1
 ID: 5 | Name: Squad 5 | Size: 1 | Locked: True | Creator Name: Name3 | Creator Online IDs: %s`, tt.ids)
 
 			expect := ListSquadsResponse{
@@ -136,6 +138,7 @@ ID: 5 | Name: Squad 5 | Size: 1 | Locked: True | Creator Name: Name3 | Creator O
 					{
 						TeamID:      1,
 						FactionName: "Lord Strathcona's Horse Regiment",
+						Tickets:     1,
 						Squads:      []*Squad{&tt.expect},
 					},
 				},
@@ -149,7 +152,7 @@ ID: 5 | Name: Squad 5 | Size: 1 | Locked: True | Creator Name: Name3 | Creator O
 
 func TestListSquadsWithoutEosCreatorID(t *testing.T) {
 	body := `----- Active Squads -----
-Team ID: 1 (Lord Strathcona's Horse Regiment)
+Team ID: 1 (Lord Strathcona's Horse Regiment) - Tickets: 1
 ID: 5 | Name: Squad 5 | Size: 1 | Locked: True | Creator Name: Name3 | Creator Online IDs: steam: 333333333333`
 	_, err := parseListSquads(body)
 	require.ErrorContains(t, err, "no EOS ID")

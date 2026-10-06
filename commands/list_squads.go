@@ -26,11 +26,13 @@ type (
 	Team struct {
 		TeamID      int32
 		FactionName string
+		Tickets     int32
 		Squads      []*Squad
 	}
 	teamRecord struct {
 		TeamID      int32  `regroup:"team_id"`
 		FactionName string `regroup:"faction_name"`
+		Tickets     int32  `regroup:"tickets"`
 	}
 
 	Squad struct {
@@ -55,7 +57,7 @@ type (
 )
 
 var (
-	teamRe  = regroup.MustCompile(`Team ID: (?P<team_id>\d+) \((?P<faction_name>.*)\)$`)
+	teamRe  = regroup.MustCompile(`Team ID: (?P<team_id>\d+) \((?P<faction_name>.*)\) - Tickets: (?P<tickets>\d+)$`)
 	squadRe = regroup.MustCompile(
 		`ID: (?P<squad_id>\d+) \| Name: (?P<squad_name>.*) \| Size: (?P<squad_size>\d+) \| Locked: (?P<locked>(True)|(False)) \| Creator Name: (?P<creator_name>.*) \| Creator Online IDs: (?P<creator_ids>.*)$`,
 	)
@@ -124,6 +126,7 @@ func parseListSquads(body string) (ListSquadsResponse, error) {
 		teams = append(teams, &Team{
 			TeamID:      team.TeamID,
 			FactionName: team.FactionName,
+			Tickets:     team.Tickets,
 			Squads:      squads,
 		})
 	}
